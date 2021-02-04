@@ -15,6 +15,7 @@ struct Physical_Address {
 };
 
 struct Page {
+	int page_number;
 	struct Physical_Address physical_address[PAGE_SIZE];
 };
 
@@ -28,7 +29,7 @@ struct Disk {
 
 struct PageTableEntry {
 	int valid_bit; // 1 if page is in main memory and 0 if page is on disk
-	int dirty_bit //1 if corresponding page has been written to while in main memory. 0 if the page has not been written to since it has been in main memory.
+	int dirty_bit; //1 if corresponding page has been written to while in main memory. 0 if the page has not been written to since it has been in main memory.
 	struct Page *mapped_page; // could be mapped to physical page or disk page
 };
 
@@ -167,12 +168,12 @@ void show_disk(int disk_page_number, struct Disk *D) {
 
 void show_page_table(struct VirtualMemory *VM, struct MainMemory *MM, struct Disk *D) {
 	// Prints the contents of each page table entry
-
-	for (i = 0; i < VM_PAGE_COUNT; i++) {
+	int i = 0;
+	for (; i < VM_PAGE_COUNT; i++) {
 		printf("%i:", i);
-		printf("%i:", VM.PTE[i].valid_bit);
-		printf("%i:", VM.PTE[i].dirty_bit);
-		printf("%i\n", i);
+		printf("%i:", VM->PTE[i].valid_bit);
+		printf("%i:", VM->PTE[i].dirty_bit);
+		printf("%i\n", VM->PTE[i].mapped_page->page_number);
 	}
 }
 
@@ -185,21 +186,26 @@ void VM_Simulator() {
 	char cmdline[MAXLINE];
 	char *argv[MAXARGC];
 
+	// All memory locations are initialized to the value of -1.
+	for (i = 0; i < MM_PAGE_COUNT; i++) { 
+		MM.page[i].page_number = i;
+		for (j = 0; j < PAGE_SIZE; j++)
+			MM.page[i].physical_address[j].value = -1;
+	}
+
+	// All disk locations are initialized to the value of -1.
+	for (i = 0; i < VM_PAGE_COUNT; i++) {
+		D.page[i].page_number = i;
+		for (j = 0; j < PAGE_SIZE; j++)
+			D.page[i].physical_address[j].value = -1;
+	}
+
 	// All virtual pages are initially on disk, so the valid bits and dirty bits of all page table entries are equal to 0.
 	for (i = 0; i < VM_PAGE_COUNT; i++) {
 		VM.PTE[i].valid_bit = 0;
 		VM.PTE[i].dirty_bit = 0;
+		VM.PTE[i].mapped_page = &D.page[i];
 	}
-
-	// All memory locations are initialized to the value of -1.
-	for (i = 0; i < MM_PAGE_COUNT; i++) 
-		for (j = 0; j < PAGE_SIZE; j++)
-			MM.page[i].physical_address[j].value = -1;
-
-	// All disk locations are initialized to the value of -1.
-	for (i = 0; i < VM_PAGE_COUNT; i++) 
-		for (j = 0; j < PAGE_SIZE; j++)
-			D.page[i].physical_address[j].value = -1;
 
 	
 	while (1) {
