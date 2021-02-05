@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #define VM_ADDRESS_COUNT 64
 #define MM_ADDRESS_COUNT 32
@@ -21,6 +22,11 @@ struct Page {
 
 struct MainMemory {
 	struct Page page[MM_PAGE_COUNT];
+	int currentPage; // used for the FIFO algorithm
+
+	// need some value for LRU: How to keep track of the least recentlu used page?
+	int justUsed[30];
+	int counter;
 };
 
 struct Disk {
@@ -69,7 +75,7 @@ struct PageAddress map_linear_address(int lin_address) {
 }
 
 
-void read(int virtual_address, struct VirtualMemory *VM, struct MainMemory *MM) {
+void read(int virtual_address, struct VirtualMemory *VM, struct MainMemory *MM, struct Disk *D) {
 	// Prints the contents of a virtual memory address.
 	
 	int page_number, index;
@@ -89,15 +95,19 @@ void read(int virtual_address, struct VirtualMemory *VM, struct MainMemory *MM) 
 	if (pte.valid_bit == 0) {
 		// If Page Fault occurs
 		printf("A Page Fault Has Occurred\n");
-
 		// should run Page Replacement Algorithm
+		
+		// add an if statement to see if mode is FIFO or LRU
+		page_replacement_algorithm(&pte, &MM, &D, 0);
 	}
 
-	else printf("%i\n", pte.mapped_page->physical_address[index].value);
+	else {
+		printf("%i\n", pte.mapped_page->physical_address[index].value);
+	}
 }
 
 
-void write(int virtual_address, int value, struct VirtualMemory *VM, struct MainMemory *MM) {
+void write(int virtual_address, int value, struct VirtualMemory *VM, struct MainMemory *MM, struct Disk *D) {
 	// Writes data to a virtual memory location.
 
 	int page_number, index;
@@ -119,6 +129,9 @@ void write(int virtual_address, int value, struct VirtualMemory *VM, struct Main
 		printf("A Page Fault Has Occurred\n");
 
 		// should run Page Replacement Algorithm
+
+		// add an if statement to see if mode is FIFO or LRU
+		page_replacement_algorithm(&pte, &MM, &D, 0);
 	}
 
 	else {
@@ -127,6 +140,91 @@ void write(int virtual_address, int value, struct VirtualMemory *VM, struct Main
 	}
 }
 
+void page_replacement_algorithm(struct PageTableEntry *pte, struct MainMemory *MM, struct Disk *D, int mode) {
+	// VA is in DISK, must move to main memory
+
+	bool room_in_mainmemory = false;
+
+	if (MM->currentPage < MM_PAGE_COUNT) {
+		room_in_mainmemory = true;
+		int currentIndex = MM->currentPage++;	// assign index before incrementing MM->currentPage
+		MM->page[currentIndex] = *pte->mapped_page; // Allocate given page data to mainmemory
+		*pte->mapped_page = MM->page[currentIndex];  // have PTE point to the mainmemory
+		MM->justUsed[MM->counter++] = pte->mapped_page->page_number; // keeping track of used page numbers for LRU
+	}
+
+	if (!room_in_mainmemory) { // mode = 0 is FIFO, mode = 1 is LRU
+		// implement LRU and FIFO seperately for swapping between main memory and disk
+
+		if (mode == 0) {
+			// FIFO
+			int page_num = MM->page[0].page_number; // oldest element
+			D->page[page_num] = MM->page[0];	// allocate data back to disk
+			
+			// shift elements of the queue (MM page array) left one time
+			int i;
+			for (i = 0; i < MM_PAGE_COUNT - 1; i++) {
+				MM->page[i] = MM->page[i+1];
+			}
+			MM->page[MM_PAGE_COUNT - 1] = *pte->mapped_page; // assign the given data to the end of MM
+
+			*pte->mapped_page = MM->page[MM_PAGE_COUNT - 1]; // current PTE points to last element in MM
+		}
+
+		else {
+			// LRU
+			int leastRecentlyUsed = MM->justUsed[0]; // page number to get rid of
+			// potential problem: what if a page number is used more than once? may have to account for this
+			bool foundLRU = false; // pontential solution to problem described above
+
+			// update justUsed array by shifting elements to the left 
+			int i;
+			for (i = 0; i < MM->counter - 1; i++) {	// counter keeps track of used index spaces in justUsed array
+				MM->justUsed[i] = MM->justUsed[i + 1];
+			}
+			MM->justUsed[MM->counter - 1] = pte->mapped_page->page_number; // assign given page number to the end of justUsed array
+			
+			
+			// finding the page number among the pages in MM
+			int j;
+			for (int j = 0; j < MM_PAGE_COUNT; j++) {
+				if ( MM->page[j].page_number == leastRecentlyUsed) { // found victim
+					foundLRU = true;
+					D->page[leastRecentlyUsed] = MM->page[j]; // allocate data back to disk
+					MM->page[j] = *pte->mapped_page; // assigm this MM page to new given data
+					*pte->mapped_page = MM->page[j]; // have curent PTE point to MM
+				}
+			}
+
+			while (!foundLRU) { // deals with page numbers already taken out but show up as duplicates in the justUsed array
+				leastRecentlyUsed = MM->justUsed[0];
+
+				// update justUsed array by shifting elements to the left 
+				int i;
+				for (i = 0; i < MM->counter - 1; i++) {	// counter keeps track of used index spaces in justUsed array
+					MM->justUsed[i] = MM->justUsed[i + 1];
+				}
+				// exclude the following line 
+				// MM->justUsed[MM->counter - 1] = pte->mapped_page->page_number; // assign given page number to the end of justUsed array
+				// instead, update MM->counter
+				MM->counter--;
+
+				// finding the page number among the pages in MM
+				int j;
+				for (int j = 0; j < MM_PAGE_COUNT; j++) {
+					if ( MM->page[j].page_number == leastRecentlyUsed) { // found victim
+						foundLRU = true;
+						D->page[leastRecentlyUsed] = MM->page[j]; // allocate data back to disk
+						MM->page[j] = *pte->mapped_page; // assigm this MM page to new given data
+						*pte->mapped_page = MM->page[j]; // have curent PTE point to MM
+					}
+				}
+			}
+		}
+	}
+	// Afterwards, update page table
+	pte->valid_bit = 1;
+}
 
 void show_main(int physical_page_number, struct MainMemory *MM) {
 	// Prints the contents of a physical page in the main memory.
@@ -192,6 +290,8 @@ void VM_Simulator() {
 		for (j = 0; j < PAGE_SIZE; j++)
 			MM.page[i].physical_address[j].value = -1;
 	}
+	MM.currentPage = 0;
+	MM.counter = 0;
 
 	// All disk locations are initialized to the value of -1.
 	for (i = 0; i < VM_PAGE_COUNT; i++) {
@@ -216,8 +316,8 @@ void VM_Simulator() {
 
 		parseline(cmdline, argv);
 		
-		if (strcmp(argv[0], "read") == 0) read(atoi(argv[1]), &VM, &MM);
-		else if (strcmp(argv[0], "write") == 0) write(atoi(argv[1]), atoi(argv[2]), &VM, &MM);
+		if (strcmp(argv[0], "read") == 0) read(atoi(argv[1]), &VM, &MM, &D);
+		else if (strcmp(argv[0], "write") == 0) write(atoi(argv[1]), atoi(argv[2]), &VM, &MM, &D);
 		else if (strcmp(argv[0], "showmain") == 0) show_main(atoi(argv[1]), &MM);
 		else if (strcmp(argv[0], "showdisk") == 0) show_disk(atoi(argv[1]), &D);
 		else if (strcmp(argv[0], "showptable") == 0) show_page_table(&VM, &MM, &D);
