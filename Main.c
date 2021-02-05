@@ -24,7 +24,7 @@ struct MainMemory {
 	struct Page page[MM_PAGE_COUNT];
 	int currentPage; // used for the FIFO algorithm
 
-	// need some value for LRU: How to keep track of the least recentlu used page?
+	// need some value for LRU: How to keep track of the least recently used page?
 	int justUsed[30];
 	int counter;
 };
@@ -74,71 +74,6 @@ struct PageAddress map_linear_address(int lin_address) {
 	return page_address;
 }
 
-
-void read(int virtual_address, struct VirtualMemory *VM, struct MainMemory *MM, struct Disk *D) {
-	// Prints the contents of a virtual memory address.
-	
-	int page_number, index;
-	struct PageAddress page_address;
-	struct PageTableEntry pte;
-	
-	if (virtual_address < 0 || virtual_address >= VM_ADDRESS_COUNT) {
-		printf("Virtual Address must be between 0 and %d inclusive.\n", VM_ADDRESS_COUNT-1);
-		return;
-	}
-
-	page_address = map_linear_address(virtual_address);
-	page_number = page_address.page_number;
-	index = page_address.index;
-	pte = VM->PTE[page_number];
-
-	if (pte.valid_bit == 0) {
-		// If Page Fault occurs
-		printf("A Page Fault Has Occurred\n");
-		// should run Page Replacement Algorithm
-		
-		// add an if statement to see if mode is FIFO or LRU
-		page_replacement_algorithm(&pte, &MM, &D, 0);
-	}
-
-	else {
-		printf("%i\n", pte.mapped_page->physical_address[index].value);
-	}
-}
-
-
-void write(int virtual_address, int value, struct VirtualMemory *VM, struct MainMemory *MM, struct Disk *D) {
-	// Writes data to a virtual memory location.
-
-	int page_number, index;
-	struct PageAddress page_address;
-	struct PageTableEntry pte;
-	
-	if (virtual_address < 0 || virtual_address >= VM_ADDRESS_COUNT) {
-		printf("Virtual Address must be between 0 and %d inclusive.\n", VM_ADDRESS_COUNT-1);
-		return;
-	}
-
-	page_address = map_linear_address(virtual_address);
-	page_number = page_address.page_number;
-	index = page_address.index;
-	pte = VM->PTE[page_number];
-
-	if (pte.valid_bit == 0) {
-		// If Page Fault occurs
-		printf("A Page Fault Has Occurred\n");
-
-		// should run Page Replacement Algorithm
-
-		// add an if statement to see if mode is FIFO or LRU
-		page_replacement_algorithm(&pte, &MM, &D, 0);
-	}
-
-	else {
-		pte.mapped_page->physical_address[index].value = value;
-		pte.dirty_bit = 1;
-	}
-}
 
 void page_replacement_algorithm(struct PageTableEntry *pte, struct MainMemory *MM, struct Disk *D, int mode) {
 	// VA is in DISK, must move to main memory
@@ -226,6 +161,70 @@ void page_replacement_algorithm(struct PageTableEntry *pte, struct MainMemory *M
 	pte->valid_bit = 1;
 }
 
+
+void read(int virtual_address, struct VirtualMemory *VM, struct MainMemory *MM, struct Disk *D, int mode) {
+	// Prints the contents of a virtual memory address.
+	
+	int page_number, index;
+	struct PageAddress page_address;
+	struct PageTableEntry pte;
+	
+	if (virtual_address < 0 || virtual_address >= VM_ADDRESS_COUNT) {
+		printf("Virtual Address must be between 0 and %d inclusive.\n", VM_ADDRESS_COUNT-1);
+		return;
+	}
+
+	page_address = map_linear_address(virtual_address);
+	page_number = page_address.page_number;
+	index = page_address.index;
+	pte = VM->PTE[page_number];
+
+	if (pte.valid_bit == 0) {
+		// If Page Fault occurs
+		printf("A Page Fault Has Occurred\n");
+		
+		// runs Page Replacement Algorithm
+		page_replacement_algorithm(&pte, MM, D, mode);
+	}
+
+	else {
+		printf("%i\n", pte.mapped_page->physical_address[index].value);
+	}
+}
+
+
+void write(int virtual_address, int value, struct VirtualMemory *VM, struct MainMemory *MM, struct Disk *D, int mode) {
+	// Writes data to a virtual memory location.
+
+	int page_number, index;
+	struct PageAddress page_address;
+	struct PageTableEntry pte;
+	
+	if (virtual_address < 0 || virtual_address >= VM_ADDRESS_COUNT) {
+		printf("Virtual Address must be between 0 and %d inclusive.\n", VM_ADDRESS_COUNT-1);
+		return;
+	}
+
+	page_address = map_linear_address(virtual_address);
+	page_number = page_address.page_number;
+	index = page_address.index;
+	pte = VM->PTE[page_number];
+
+	if (pte.valid_bit == 0) {
+		// If Page Fault occurs
+		printf("A Page Fault Has Occurred\n");
+
+		// runs Page Replacement Algorithm
+		page_replacement_algorithm(&pte, MM, D, mode);
+	}
+
+	else {
+		pte.mapped_page->physical_address[index].value = value;
+		pte.dirty_bit = 1;
+	}
+}
+
+
 void show_main(int physical_page_number, struct MainMemory *MM) {
 	// Prints the contents of a physical page in the main memory.
 
@@ -276,7 +275,7 @@ void show_page_table(struct VirtualMemory *VM, struct MainMemory *MM, struct Dis
 }
 
 
-void VM_Simulator() {
+void VM_Simulator(int mode) {
 	struct VirtualMemory VM;
 	struct MainMemory MM;
 	struct Disk D;
@@ -316,8 +315,8 @@ void VM_Simulator() {
 
 		parseline(cmdline, argv);
 		
-		if (strcmp(argv[0], "read") == 0) read(atoi(argv[1]), &VM, &MM, &D);
-		else if (strcmp(argv[0], "write") == 0) write(atoi(argv[1]), atoi(argv[2]), &VM, &MM, &D);
+		if (strcmp(argv[0], "read") == 0) read(atoi(argv[1]), &VM, &MM, &D, mode);
+		else if (strcmp(argv[0], "write") == 0) write(atoi(argv[1]), atoi(argv[2]), &VM, &MM, &D, mode);
 		else if (strcmp(argv[0], "showmain") == 0) show_main(atoi(argv[1]), &MM);
 		else if (strcmp(argv[0], "showdisk") == 0) show_disk(atoi(argv[1]), &D);
 		else if (strcmp(argv[0], "showptable") == 0) show_page_table(&VM, &MM, &D);
@@ -330,7 +329,8 @@ void VM_Simulator() {
 int main(int argc, char *argv[]) {
 
 	char *valid_command_line_arguments[] = {"FIFO", "LRU"};
-	char *command_line_argument = NULL;
+	char *command_line_argument = "";
+	int mode = 0; // 0 for FIFO (default)
 	
 	if (argc == 2) {
 		// if a command-line argument for the selection of page replacement algorithm if given
@@ -343,7 +343,8 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 
-	VM_Simulator();
+	if (strcmp(command_line_argument, "LRU") == 0) mode = 1;
+	VM_Simulator(mode);
 
 	return 0;
 }
