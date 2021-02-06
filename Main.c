@@ -392,7 +392,7 @@ int main(int argc, char *argv[]) {
 	
 	if (argc == 2) {
 		// if a command-line argument for the selection of page replacement algorithm if given
-		command_line_argument = argv[2];
+		command_line_argument = argv[1];
 	}
 
 	else if (argc > 2) {
