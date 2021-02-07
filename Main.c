@@ -78,74 +78,58 @@ struct PageAddress map_linear_address(int lin_address) {
 void page_replacement_algorithm(struct PageTableEntry *pte, struct MainMemory *MM, struct Disk *D, struct VirtualMemory *VM, int mode) {
 	// VA is in DISK, must move to main memory
 	bool room_in_mainmemory = false;
-	//int i;
 
 	if (MM->currentPage < MM_PAGE_COUNT) { // there is room in MM
 		room_in_mainmemory = true;
 		int currentIndex = MM->currentPage++;
-
-		MM->page[currentIndex].page_number = pte->mapped_page->page_number; // update page_number from current MM to be pte's page_number
-		*pte->mapped_page = MM->page[currentIndex]; // just have pte point to current MM page. CHECK ON THIS! (unsure of pointer assignment)
 		
-		// MM->page[currentIndex] = *pte->mapped_page; // is this needed?
-		
-		/* reference to initializing the MM
-		// MM.page[i].page_number = i;
-		//MM.page[i].physical_address[j].value = -1;
-		//MM.currentPage = 0;
-		//MM.counterLRU = 0;
-		*/
-
-		/* old code
-		// MM->page[currentIndex] = *pte->mapped_page; // Allocate given page data to mainmemory FIX: directly allocate
-		// MM->page[currentIndex].page_number = pte->mapped_page->page_number; FIX: directly allocate
-		
-		//directly allocating array
-		// for (i = 0; i < PAGE_SIZE; i++) {
-		// 	MM->page[currentIndex].physical_address[i] = pte->mapped_page->physical_address[i]; 
-		// }
-		
-		// pte->mapped_page = MM->page;  // have PTE point to the mainmemory // NEED TO CHECK THIS
-		*/
+		// MM->page[currentIndex].page_number = pte->mapped_page->page_number; // update page_number from current MM to be pte's page_number
+		MM->page[currentIndex] = D->page[pte->mapped_page->page_number]; // equivalent to this? : MM->page[currentIndex] = *pte->mapped_page; 
+		// pte->mapped_page = &MM->page[currentIndex]; // pte points to current MM page. CHECK ON THIS! (unsure of pointer/reference assignment)
+		VM->PTE[pte->mapped_page->page_number].mapped_page = &MM->page[currentIndex];
+		// VM->PTE[pte->mapped_page->page_number].mapped_page->page_number = 
 	}
 
-	/* code to potentially use
-	// struct Page *tempPage = pte->mapped_page;
-	// reference
+	/* code reference
 	// VM.PTE[i].mapped_page = &D.page[i];
 	*/
 
 	if (!room_in_mainmemory) { // mode = 0 is FIFO, mode = 1 is LRU
 		// implement LRU and FIFO seperately for swapping between main memory and disk
-
 		if (mode == 0) {
 			// FIFO
 			int page_num = MM->page[0].page_number; // oldest element with the page number
 			
-			// Oldest element is allocated back to disk
+			// Oldest element is allocated back to disk 
 			D->page[page_num] = MM->page[0]; 
 
 			// change victim's pte valid bit to zero
 			VM->PTE[page_num].valid_bit = 0;
 			// victim's pte now points back to the disk page
-			*VM->PTE[page_num].mapped_page = D->page[page_num]; // victum pte points back to the disk page. CHECK ON THIS! (unsure of pointer assignment)
+			VM->PTE[page_num].mapped_page = &D->page[page_num]; // victim pte points back to the disk page. CHECK ON THIS! (unsure of pointer assignment)
 			
 			int i;
 			// shift elements of the queue (MM page array) left one time, deallocating the oldest element
 			for (i = 0; i < (MM_PAGE_COUNT - 1); i++) { // IMPORTANT: the first element of MM was lost, do we need to free that?
 				MM->page[i] = MM->page[i + 1]; 
 			}
-			// append the currrent pte to the end of MM
-			struct Page *tempPage = pte->mapped_page;
-			*pte->mapped_page = MM->page[MM_PAGE_COUNT - 1];
-			MM->page[MM_PAGE_COUNT - 1] = *tempPage;
-			MM->page[MM_PAGE_COUNT - 1].page_number = pte->mapped_page->page_number; 			
+			// append the current pte to the end of MM
+			//struct Page *tempPage = pte->mapped_page; // does this need a reference (&)
+
+			MM->page[MM_PAGE_COUNT - 1] = *VM->PTE[pte->mapped_page->page_number].mapped_page; // pointer? 
+			// MM->page[MM_PAGE_COUNT - 1] = D->page[pte->mapped_page->page_number];
+			// MM->page[MM_PAGE_COUNT - 1].page_number = pte->mapped_page->page_number; 	
+			
+			// MM->page[MM_PAGE_COUNT - 1] = *tempPage; // pointer on temp page?
+			
+			// pte->mapped_page = &MM->page[MM_PAGE_COUNT - 1];
+			VM->PTE[pte->mapped_page->page_number].mapped_page = &MM->page[MM_PAGE_COUNT - 1];	
 		}
 
 		else {
 			// LRU
 			int leastRecentlyUsed = MM->justUsed[0]; // page number to get rid of
-			// bool foundLRU = false; // potential solution to problem described above
+			
 			int i;
 			// update justUsed array by shifting elements to the left 
 			for (i = 0; i < MM->counterLRU - 1; i++) {	// counter keeps track of used index spaces in justUsed array
@@ -155,7 +139,7 @@ void page_replacement_algorithm(struct PageTableEntry *pte, struct MainMemory *M
 			
 			// finding the page number among the pages in MM
 			for (int i = 0; i < MM_PAGE_COUNT; i++) {
-				if ( MM->page[i].page_number == leastRecentlyUsed) { // found victim
+				if ( MM->page[i].page_number == leastRecentlyUsed) { // found victim if true
 
 					// save MM page contents to disk
 					D->page[leastRecentlyUsed] = MM->page[i]; 
@@ -163,20 +147,25 @@ void page_replacement_algorithm(struct PageTableEntry *pte, struct MainMemory *M
 					// change victim's pte valid bit to zero
 					VM->PTE[leastRecentlyUsed].valid_bit = 0;
 					// victim's pte now points back to disk page
-					*VM->PTE[leastRecentlyUsed].mapped_page = D->page[leastRecentlyUsed];
+					VM->PTE[leastRecentlyUsed].mapped_page = &D->page[leastRecentlyUsed];
 
 					// swapping disk and memory
-					struct Page *tempPage = pte->mapped_page;
-					*pte->mapped_page = MM->page[i];
-					MM->page[i] = *tempPage;
-					MM->page[i].page_number = pte->mapped_page->page_number; 	
+					// struct Page *tempPage = pte->mapped_page;
+			
+					MM->page[i] = *VM->PTE[pte->mapped_page->page_number].mapped_page; // dereference pointer? 
+					// MM->page[i] = D->page[pte->mapped_page->page_number];
+					// MM->page[i].page_number = pte->mapped_page->page_number; 
+
+					// pte->mapped_page = &MM->page[i];
+					VM->PTE[pte->mapped_page->page_number].mapped_page = &MM->page[i];
 				}
 				break;
 			}
 		}
 	}
 	// Afterwards, update page table
-	pte->valid_bit = 1;
+	// pte->valid_bit = 1;
+	VM->PTE[pte->mapped_page->page_number].valid_bit = 1;
 }
 
 
@@ -225,12 +214,13 @@ void read(int virtual_address, struct VirtualMemory *VM, struct MainMemory *MM, 
 		printf("A Page Fault Has Occurred\n");
 		
 		// runs Page Replacement Algorithm
-		page_replacement_algorithm(&pte, MM, D, VM, mode); // &MM or MM? same for D 
+		page_replacement_algorithm(&pte, MM, D, VM, mode); 
 	}
 
-	else {
-		printf("%i\n", pte.mapped_page->physical_address[index].value);
-	}
+	// get rid of else?
+	// else {
+	printf("%i\n", pte.mapped_page->physical_address[index].value);
+	// }
 }
 
 
@@ -278,13 +268,15 @@ void write(int virtual_address, int value, struct VirtualMemory *VM, struct Main
 		printf("A Page Fault Has Occurred\n");
 
 		// runs Page Replacement Algorithm
-		page_replacement_algorithm(&pte, MM, D, VM, mode); // &MM or MM? same for D 
+		page_replacement_algorithm(&pte, MM, D, VM, mode); 
 	}
 
-	else {
-		pte.mapped_page->physical_address[index].value = value;
-		pte.dirty_bit = 1;
-	}
+	// get rid of else?
+	// else {
+	pte.mapped_page->physical_address[index].value = value;
+	// pte.dirty_bit = 1;
+	VM->PTE[pte.mapped_page->page_number].dirty_bit = 1;
+	// }
 }
 
 
